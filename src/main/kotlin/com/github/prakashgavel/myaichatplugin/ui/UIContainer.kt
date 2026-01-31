@@ -1,5 +1,9 @@
 package com.github.prakashgavel.myaichatplugin.ui
 
+import GeminiApiClient
+import com.github.prakashgavel.myaichatplugin.api.GeminiApiService
+import com.github.prakashgavel.myaichatplugin.api.GeminiKeyProviderImpl
+import com.github.prakashgavel.myaichatplugin.api.GeminiKeyStore
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.vfs.VfsUtilCore
@@ -8,6 +12,9 @@ import javax.swing.*
 import java.awt.*
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
     // UI components
@@ -32,19 +39,34 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         add(JPanel(), BorderLayout.CENTER) // spacer
     }
 
+    // Gemini integration components
+    private val geminiClient = GeminiApiClient()
+    private val geminiKeyStore = GeminiKeyStore()
+    private val geminiKeyProvider = GeminiKeyProviderImpl(geminiKeyStore)
+    private val geminiService = GeminiApiService(geminiClient, geminiKeyProvider)
+
+    // If you want to enable a quick auto-load for API key during dev, you can call save here.
+    // e.g., geminiKeyStore.saveApiKey("YOUR_KEY")
+
     private val inputField = JTextField().apply {
+        // On Enter, send to Gemini and append response
         addActionListener {
             val userInput = this.text
             this.text = ""
             appendChat("You", userInput)
-            // placeholder response
-            appendChat(
-                "Copilot", "Output (hard-coded):\n" +
-                        "fun main() {\n    println(\"Hello, World!\")\n}"
-            )
+
+            // Launch Gemini request
+            CoroutineScope(Dispatchers.Main).launch {
+                try {
+                    val model = (modelCombo.selectedItem as? String) ?: UiModels.defaultModels.first().displayName
+                    val response = geminiService.generateContent(model, userInput)
+                    appendChat("Gemini", response)
+                } catch (e: Exception) {
+                    appendChat("Gemini", "Error: ${e.message}")
+                }
+            }
         }
     }
-
 
     private val modeCombo = JComboBox(modes.map { it.name }.toTypedArray())
     private val modelCombo = JComboBox(models.map { it.displayName }.toTypedArray())
@@ -75,9 +97,9 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     init {
-        // Build a vertical layout: chat on top, then input (with button above)
+        // Build layout: chat on top, then input (button above)
         val chatAndInput = JPanel(BorderLayout())
-        // Chat area (read-only)
+        // Chat area
         chatAndInput.add(chatAreaPanel, BorderLayout.CENTER)
 
         // Input area with button on top
@@ -87,8 +109,8 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
 
         chatAndInput.add(inputWrapper, BorderLayout.SOUTH)
 
-        // Add to tool window (replace previous center/main splits)
-        add(topControls, BorderLayout.NORTH) // keep if you want mode/model bar
+        // Assemble main layout
+        add(topControls, BorderLayout.NORTH) // mode/model bar
         add(chatAndInput, BorderLayout.CENTER)
 
         // Prepare input area
@@ -96,9 +118,9 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         inputPane.preferredSize = Dimension(0, 140)
         inputPane.add(inputField, BorderLayout.CENTER)
         inputPane.add(JPanel(), BorderLayout.EAST)
-        inputPane.add(selectedContextPanel, BorderLayout.NORTH) // show chips above the input field
+        inputPane.add(selectedContextPanel, BorderLayout.NORTH) // chips above input
 
-        // Populate context tree only if you still need it elsewhere
+        // Populate context tree
         refreshContextTree()
     }
 
@@ -110,26 +132,22 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
     // Build real context tree sections
     private fun refreshContextTree() {
         leftRoot.removeAllChildren()
-        // Section header: Context
+        // Section headers
         val sectionFiles = DefaultMutableTreeNode("Files")
         val sectionFolders = DefaultMutableTreeNode("Folders")
 
-        // Fetch all files and folders from the current project
         val allFiles = mutableListOf<VirtualFile>()
         val allFolders = mutableListOf<VirtualFile>()
 
-        // Quick naive collect: iterate project base dir recursively
         val baseDir = project.baseDir
         if (baseDir != null && baseDir.exists()) {
             collectFilesAndFolders(baseDir, allFiles, allFolders)
         }
 
-        // Add files
         for (f in allFiles) {
             val rel = VfsUtilCore.getRelativePath(f, project.baseDir, '/')
             sectionFiles.add(DefaultMutableTreeNode(rel ?: f.path))
         }
-        // Add folders
         for (f in allFolders) {
             val rel = VfsUtilCore.getRelativePath(f, project.baseDir, '/')
             sectionFolders.add(DefaultMutableTreeNode(rel ?: f.path))
@@ -137,12 +155,11 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
 
         leftRoot.add(sectionFiles)
         leftRoot.add(sectionFolders)
-        // Add a back node to return from sections
         leftRoot.add(DefaultMutableTreeNode("Back"))
         leftTreeModel.reload()
     }
 
-    // Recursive walk to collect files and folders
+    // Recursive walk
     private fun collectFilesAndFolders(
         dir: VirtualFile,
         files: MutableList<VirtualFile>,
@@ -162,92 +179,10 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         }
     }
 
-//    private fun showContextDialog() {
-//        val dialogContent = JPanel(BorderLayout())
-//        val cards = JPanel(CardLayout())
-//
-//        // --- Prepare data once ---
-//        val allFiles = mutableListOf<VirtualFile>()
-//        val allFolders = mutableListOf<VirtualFile>()
-//        val baseDir = project.baseDir
-//        if (baseDir != null && baseDir.exists()) {
-//            collectFilesAndFolders(baseDir, allFiles, allFolders)
-//        }
-//
-//        // --- Open files (only for landing) ---
-//        val openFiles = FileEditorManager.getInstance(project).openFiles
-//        val openList = JList(openFiles.map { it.name }.toTypedArray())
-//        val openPanel = JPanel(BorderLayout()).apply {
-//            add(JButton("+ Add All Open Files").apply {
-//                addActionListener { addOpenFilesToContext(openFiles) }
-//            }, BorderLayout.NORTH)
-//            add(JScrollPane(openList), BorderLayout.CENTER)
-//        }
-//
-//        // --- Card 1: Landing page with buttons + open files ---
-//        val landing = JPanel(BorderLayout()).apply {
-//            val buttons = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-//                add(JButton("Files").apply {
-//                    addActionListener { (cards.layout as CardLayout).show(cards, "filesCard") }
-//                })
-//                add(JButton("Folders").apply {
-//                    addActionListener { (cards.layout as CardLayout).show(cards, "foldersCard") }
-//                })
-//            }
-//            add(JLabel("<html><b>Add Context</b></html>"), BorderLayout.NORTH)
-//            add(buttons, BorderLayout.CENTER)
-//            // place open files directly below buttons (removes large gap)
-//            add(openPanel, BorderLayout.SOUTH)
-//        }
-//
-//        // --- Card 2: Files list with back (no open files section here) ---
-//        val filesList = JList(
-//            allFiles.map { VfsUtilCore.getRelativePath(it, project.baseDir, '/') ?: it.path }.toTypedArray()
-//        )
-//        val filesCard = JPanel(BorderLayout()).apply {
-//            add(JLabel("Files"), BorderLayout.NORTH)
-//            add(JScrollPane(filesList), BorderLayout.CENTER)
-//            add(JButton("Back").apply {
-//                addActionListener { (cards.layout as CardLayout).show(cards, "landing") }
-//            }, BorderLayout.SOUTH)
-//        }
-//
-//        // --- Card 3: Folders list with back (no open files section here) ---
-//        val foldersList = JList(
-//            allFolders.map { VfsUtilCore.getRelativePath(it, project.baseDir, '/') ?: it.path }.toTypedArray()
-//        )
-//        val foldersCard = JPanel(BorderLayout()).apply {
-//            add(JLabel("Folders"), BorderLayout.NORTH)
-//            add(JScrollPane(foldersList), BorderLayout.CENTER)
-//            add(JButton("Back").apply {
-//                addActionListener { (cards.layout as CardLayout).show(cards, "landing") }
-//            }, BorderLayout.SOUTH)
-//        }
-//
-//        // --- Assemble cards ---
-//        cards.add(landing, "landing")
-//        cards.add(filesCard, "filesCard")
-//        cards.add(foldersCard, "foldersCard")
-//
-//        dialogContent.add(cards, BorderLayout.CENTER)
-//
-//        val dialog = JOptionPane(dialogContent, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION)
-//        val dlg = dialog.createDialog(this, "Add Context")
-//        dlg.isVisible = true
-//    }
-//
-//    private fun addOpenFilesToContext(openFiles: Array<VirtualFile>) {
-//        // For demo: just print to chat
-//        val names = openFiles.joinToString(", ") { it.name }
-//        appendChat("Context", "Added open files: $names")
-//        // In real usage, update internal context model accordingly
-//    }
-
     private fun showContextDialog() {
         val dialogContent = JPanel(BorderLayout())
         val cards = JPanel(CardLayout())
 
-        // --- Prepare data once ---
         val allFiles = mutableListOf<VirtualFile>()
         val allFolders = mutableListOf<VirtualFile>()
         val baseDir = project.baseDir
@@ -255,7 +190,6 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
             collectFilesAndFolders(baseDir, allFiles, allFolders)
         }
 
-        // --- Open files (only for landing) ---
         val openFiles = FileEditorManager.getInstance(project).openFiles
         val openList = JList(openFiles.map { it.name }.toTypedArray())
         val openPanel = JPanel(BorderLayout()).apply {
@@ -265,7 +199,6 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
             add(JScrollPane(openList), BorderLayout.CENTER)
         }
 
-        // --- Card 1: Landing page with buttons + open files ---
         val landing = JPanel(BorderLayout()).apply {
             val buttons = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
                 add(JButton("Files").apply {
@@ -280,7 +213,6 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
             add(openPanel, BorderLayout.SOUTH)
         }
 
-        // --- Card 2: Files list with back + double-click add ---
         val filesDisplayNames = allFiles.map { VfsUtilCore.getRelativePath(it, project.baseDir, '/') ?: it.path }
         val filesList = JList(filesDisplayNames.toTypedArray()).apply {
             addMouseListener(object : java.awt.event.MouseAdapter() {
@@ -300,7 +232,6 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
             }, BorderLayout.SOUTH)
         }
 
-        // --- Card 3: Folders list with back + double-click add ---
         val foldersDisplayNames = allFolders.map { VfsUtilCore.getRelativePath(it, project.baseDir, '/') ?: it.path }
         val foldersList = JList(foldersDisplayNames.toTypedArray()).apply {
             addMouseListener(object : java.awt.event.MouseAdapter() {
@@ -320,14 +251,12 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
             }, BorderLayout.SOUTH)
         }
 
-        // --- Assemble cards ---
         cards.add(landing, "landing")
         cards.add(filesCard, "filesCard")
         cards.add(foldersCard, "foldersCard")
 
         dialogContent.add(cards, BorderLayout.CENTER)
 
-        // Use modal JDialog without `apply`
         val ownerWindow = SwingUtilities.getWindowAncestor(this)
         val dialog = if (ownerWindow is Frame) {
             javax.swing.JDialog(ownerWindow, "Add Context", true)
@@ -347,9 +276,7 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         openFiles.forEach { addChipToInput(it.name) }
     }
 
-    // Create a removable chip and add it to the selectedContextPanel
     private fun addChipToInput(name: String) {
-        // Avoid duplicates
         val existing = (0 until selectedContextPanel.componentCount)
             .map { selectedContextPanel.getComponent(it) }
             .filterIsInstance<JPanel>()
@@ -373,6 +300,7 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         selectedContextPanel.repaint()
     }
 
+    // Helpers for files
     private fun collectFiles(dir: VirtualFile, acc: MutableList<VirtualFile>) {
         if (!dir.isDirectory) {
             acc.add(dir)
@@ -381,7 +309,6 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         for (child in dir.children) {
             if (child.isDirectory) continue
             acc.add(child)
-            // also dive deeper for nested files
             if (child.isDirectory) collectFiles(child, acc)
         }
     }
