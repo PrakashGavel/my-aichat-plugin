@@ -35,8 +35,17 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         val addContextBtn = JButton("Add context…").apply {
             addActionListener { showContextDialog() }
         }
-        add(addContextBtn, BorderLayout.WEST)
+        val setKeyBtn = JButton("Set Gemini Key…").apply {
+            addActionListener { showSetKeyDialog() }
+        }
+        val left = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+            add(addContextBtn)
+            add(setKeyBtn)
+        }
+        add(left, BorderLayout.WEST)
         add(JPanel(), BorderLayout.CENTER) // spacer
+//        add(addContextBtn, BorderLayout.WEST)
+//        add(JPanel(), BorderLayout.CENTER) // spacer
     }
 
     // Gemini integration components
@@ -58,8 +67,9 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
             // Launch Gemini request
             CoroutineScope(Dispatchers.Main).launch {
                 try {
-                    val model = (modelCombo.selectedItem as? String) ?: UiModels.defaultModels.first().displayName
-                    val response = geminiService.generateContent(model, userInput)
+                    val selectedModelDisplay = modelCombo.selectedItem as? String ?: models.first().displayName
+                    val modelId = models.firstOrNull { it.displayName == selectedModelDisplay }?.id ?: models.first().id
+                    val response = geminiService.generateContent(modelId, userInput)
                     appendChat("Gemini", response)
                 } catch (e: Exception) {
                     appendChat("Gemini", "Error: ${e.message}")
@@ -122,11 +132,43 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
 
         // Populate context tree
         refreshContextTree()
+
+        // Prompt for Gemini key on first open if missing
+        if (geminiKeyStore.getApiKey().isNullOrBlank()) {
+            SwingUtilities.invokeLater { showSetKeyDialog(initial = "hgfaehgfyiwhfhabfuf") }
+        }
+    }
+
+    private fun showSetKeyDialog(initial: String? = null) {
+        val field = JPasswordField().apply {
+            if (initial != null) text = initial
+            columns = 32
+        }
+        val panel = JPanel(BorderLayout(8, 8)).apply {
+            add(JLabel("Enter your Gemini API key:"), BorderLayout.NORTH)
+            add(field, BorderLayout.CENTER)
+        }
+        val result = JOptionPane.showConfirmDialog(
+            SwingUtilities.getWindowAncestor(this),
+            panel,
+            "Set Gemini Key",
+            JOptionPane.OK_CANCEL_OPTION,
+            JOptionPane.PLAIN_MESSAGE
+        )
+        if (result == JOptionPane.OK_OPTION) {
+            val key = String(field.password).trim()
+            if (key.isNotEmpty()) {
+                geminiKeyStore.saveApiKey(key)
+                appendChat("System", "Gemini API key saved.")
+            } else {
+                appendChat("System", "Gemini API key not set.")
+            }
+        }
     }
 
     private fun appendChat(sender: String, text: String) {
         val current = chatArea.text
-        chatArea.text = "$$current\n$$sender: $text"
+        chatArea.text = "$current\n$sender: $text"
     }
 
     // Build real context tree sections

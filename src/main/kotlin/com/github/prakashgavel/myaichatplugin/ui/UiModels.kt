@@ -13,8 +13,7 @@ enum class ContextView {
 // Example: Provide default models for use in UI
 object UiModels {
     val defaultModels = listOf(
-        ModelEntry("Gemini Pro", "gemini-pro"),
-        ModelEntry("Gemini 1.5 Flash", "gemini-1.5-flash")
+        ModelEntry("Gemini 2.5 Flash Lite", "gemini-2.5-flash-lite")
     )
     val defaultModes = UiMode.values().toList()
 }
