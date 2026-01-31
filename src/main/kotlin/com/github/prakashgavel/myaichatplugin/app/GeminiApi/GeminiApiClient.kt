@@ -1,8 +1,6 @@
-// kotlin
 import com.github.prakashgavel.myaichatplugin.api.GeminiApiRoutes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.net.URI
 import java.net.http.HttpClient

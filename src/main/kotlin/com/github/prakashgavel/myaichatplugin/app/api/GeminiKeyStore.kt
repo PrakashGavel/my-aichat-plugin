@@ -12,7 +12,6 @@ class GeminiKeyStore(private val serviceName: String = "com.github.prakashgavel.
         PasswordSafe.instance.set(credentialsAttributes, creds)
     }
 
-    // kotlin
     fun getApiKey(): String? {
         val creds: Credentials? = PasswordSafe.instance.get(credentialsAttributes)
         return creds?.password?.toCharArray()?.concatToString()
