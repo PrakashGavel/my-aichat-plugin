@@ -21,12 +21,15 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
     private val models = UiModels.defaultModels
     private val modes = UiModels.defaultModes
 
+    // Initial greeting text constant
+    private val initialGreeting = "Hi @user, how can I help you?\nI'm powered by AI, so surprises and mistakes are possible. Verify code or suggestions and share feedback."
+
     private val chatArea = JTextArea().apply {
         isEditable = false
         lineWrap = true
         wrapStyleWord = true
-        text =
-            "Hi @user, how can I help you?\nI'm powered by AI, so surprises and mistakes are possible. Verify code or suggestions and share feedback."
+        text = initialGreeting
+        caretPosition = 0
     }
 
     private val inputPane = JPanel(BorderLayout())
@@ -44,8 +47,6 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         }
         add(left, BorderLayout.WEST)
         add(JPanel(), BorderLayout.CENTER) // spacer
-//        add(addContextBtn, BorderLayout.WEST)
-//        add(JPanel(), BorderLayout.CENTER) // spacer
     }
 
     // Gemini integration components
@@ -54,28 +55,42 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
     private val geminiKeyProvider = GeminiKeyProviderImpl(geminiKeyStore)
     private val geminiService = GeminiApiService(geminiClient, geminiKeyProvider)
 
-    // If you want to enable a quick auto-load for API key during dev, you can call save here.
-    // e.g., geminiKeyStore.saveApiKey("YOUR_KEY")
-
-    private val inputField = JTextField().apply {
-        // On Enter, send to Gemini and append response
-        addActionListener {
-            val userInput = this.text
-            this.text = ""
-            appendChat("You", userInput)
-
-            // Launch Gemini request
-            CoroutineScope(Dispatchers.Main).launch {
-                try {
-                    val selectedModelDisplay = modelCombo.selectedItem as? String ?: models.first().displayName
-                    val modelId = models.firstOrNull { it.displayName == selectedModelDisplay }?.id ?: models.first().id
-                    val response = geminiService.generateContent(modelId, userInput)
-                    appendChat("Gemini", response)
-                } catch (e: Exception) {
-                    appendChat("Gemini", "Error: ${e.message}")
+    // Replace single-line inputField with multi-line inputTextArea supporting Shift+Enter for newline, Enter to send
+    private val inputTextArea = JTextArea().apply {
+        lineWrap = true
+        wrapStyleWord = true
+        rows = 3
+        font = UIManager.getFont("TextField.font")
+        // Key bindings: Enter to send, Shift+Enter to newline
+        val sendKey = KeyStroke.getKeyStroke("ENTER")
+        val newlineKey = KeyStroke.getKeyStroke("shift ENTER")
+        val im = getInputMap(JComponent.WHEN_FOCUSED)
+        im.put(sendKey, "send")
+        im.put(newlineKey, "newline")
+        actionMap.put("send", object : AbstractAction() {
+            override fun actionPerformed(e: java.awt.event.ActionEvent?) {
+                val userInput = text.trim()
+                if (userInput.isEmpty()) return
+                text = ""
+                appendChat("You", userInput)
+                // Launch Gemini request
+                CoroutineScope(Dispatchers.Main).launch {
+                    try {
+                        val selectedModelDisplay = modelCombo.selectedItem as? String ?: models.first().displayName
+                        val modelId = models.firstOrNull { it.displayName == selectedModelDisplay }?.id ?: models.first().id
+                        val response = geminiService.generateContent(modelId, userInput)
+                        appendChat("Gemini", response)
+                    } catch (e: Exception) {
+                        appendChat("Gemini", "Error: ${e.message}")
+                    }
                 }
             }
-        }
+        })
+        actionMap.put("newline", object : AbstractAction() {
+            override fun actionPerformed(e: java.awt.event.ActionEvent?) {
+                append("\n")
+            }
+        })
     }
 
     private val modeCombo = JComboBox(modes.map { it.name }.toTypedArray())
@@ -86,8 +101,13 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
     private val leftTreeModel = DefaultTreeModel(leftRoot)
 
     // Center chat panel
+    private val chatAreaScroll = JScrollPane(chatArea).apply {
+        verticalScrollBar.unitIncrement = 16
+        horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+        verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+    }
     private val chatAreaPanel = JPanel(BorderLayout()).apply {
-        add(JScrollPane(chatArea), BorderLayout.CENTER)
+        add(chatAreaScroll, BorderLayout.CENTER)
     }
 
     // Top controls
@@ -99,6 +119,13 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
             add(modelCombo)
         }
         add(left, BorderLayout.WEST)
+        // Clear Chat button on the right
+        val right = JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+            add(JButton("Clear Chat").apply {
+                addActionListener { clearChat() }
+            })
+        }
+        add(right, BorderLayout.EAST)
     }
 
     // Panel to hold selected context chips in the input area
@@ -126,12 +153,22 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         // Prepare input area
         inputPane.minimumSize = Dimension(0, 120)
         inputPane.preferredSize = Dimension(0, 140)
-        inputPane.add(inputField, BorderLayout.CENTER)
+        // Use a scroll pane for multi-line input
+        inputPane.add(JScrollPane(inputTextArea).apply {
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+        }, BorderLayout.CENTER)
         inputPane.add(JPanel(), BorderLayout.EAST)
-        inputPane.add(selectedContextPanel, BorderLayout.NORTH) // chips above input
 
         // Populate context tree
         refreshContextTree()
+
+        // Focus input at startup and place caret at 0 in chat display
+        SwingUtilities.invokeLater {
+            inputTextArea.requestFocusInWindow()
+            chatArea.caretPosition = 0
+            chatAreaScroll.verticalScrollBar.value = 0
+        }
 
         // Prompt for Gemini key on first open if missing
         if (geminiKeyStore.getApiKey().isNullOrBlank()) {
@@ -168,9 +205,18 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         }
     }
 
+    private fun clearChat() {
+        // Reset chat area to initial greeting only and scroll to top
+        chatArea.text = initialGreeting
+        chatArea.caretPosition = 0
+        chatAreaScroll.verticalScrollBar.value = 0
+    }
+
     private fun appendChat(sender: String, text: String) {
         val current = chatArea.text
         chatArea.text = "$current\n$sender: $text"
+        // Scroll to bottom to show newest message
+        chatArea.caretPosition = chatArea.document.length
     }
 
     // Build real context tree sections
@@ -299,18 +345,20 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         cards.add(filesCard, "filesCard")
         cards.add(foldersCard, "foldersCard")
 
-        dialogContent.add(cards, BorderLayout.CENTER)
+        val dialogContainer = JPanel(BorderLayout()).apply {
+            add(cards, BorderLayout.CENTER)
+        }
 
         val ownerWindow = SwingUtilities.getWindowAncestor(this)
         val dialog = if (ownerWindow is Frame) {
-            javax.swing.JDialog(ownerWindow, "Add Context", true)
+            JDialog(ownerWindow, "Add Context", true)
         } else if (ownerWindow is Dialog) {
-            javax.swing.JDialog(ownerWindow, "Add Context", true)
+            JDialog(ownerWindow, "Add Context", true)
         } else {
-            javax.swing.JDialog(null as Frame?, "Add Context", true)
+            JDialog(null as Frame?, "Add Context", true)
         }
 
-        dialog.contentPane = dialogContent
+        dialog.contentPane = dialogContainer
         dialog.pack()
         dialog.setLocationRelativeTo(ownerWindow)
         dialog.isVisible = true
