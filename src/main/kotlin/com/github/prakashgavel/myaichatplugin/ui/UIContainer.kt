@@ -119,7 +119,7 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
             add(modelCombo)
         }
         add(left, BorderLayout.WEST)
-        // Clear Chat button on the right
+        // Add Clear Chat button on the right
         val right = JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
             add(JButton("Clear Chat").apply {
                 addActionListener { clearChat() }
@@ -131,6 +131,13 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
     // Panel to hold selected context chips in the input area
     private val selectedContextPanel = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
         border = BorderFactory.createTitledBorder("Context")
+    }
+
+    // Add a wrapper to provide a small vertical gap above the context chips box
+    private val selectedContextWrapper = JPanel(BorderLayout()).apply {
+        // add a small top padding to create vertical space between input area and context box
+        border = BorderFactory.createEmptyBorder(15, 0, 0, 0)
+        add(selectedContextPanel, BorderLayout.CENTER)
     }
 
     init {
@@ -159,6 +166,8 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
             verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
         }, BorderLayout.CENTER)
         inputPane.add(JPanel(), BorderLayout.EAST)
+        // Replace direct context panel add with wrapper to introduce gap
+        inputPane.add(selectedContextWrapper, BorderLayout.NORTH) // chips above input
 
         // Populate context tree
         refreshContextTree()
