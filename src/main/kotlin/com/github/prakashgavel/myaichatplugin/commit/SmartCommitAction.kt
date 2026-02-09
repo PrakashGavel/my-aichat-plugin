@@ -79,7 +79,7 @@ class SmartCommitAction : AnAction() {
     }
 
     companion object {
-        private const val TITLE = "Smart Commit"
+        const val TITLE = "Smart Commit"
     }
 }
 
@@ -196,9 +196,8 @@ class DiffSummarizer {
 }
 
 private class SmartCommitDialog(project: Project, result: DiffSummarizer.Result, private val aggregateDiff: String) : DialogWrapper(project) {
-    private val DIALOG_TITLE = "Smart Commit"
+    private val DIALOG_TITLE = SmartCommitAction.TITLE
     private val subjectField = JTextField(result.subject)
-    // New summarized short commit message area
     private val summaryArea = JTextArea().apply {
         lineWrap = true
         wrapStyleWord = true
@@ -277,18 +276,11 @@ private class SmartCommitDialog(project: Project, result: DiffSummarizer.Result,
         return panel
     }
 
-    private fun composedMessage(): String = buildString {
-        append(subjectField.text.trim())
-        val body = bodyArea.text.trim()
-        if (body.isNotEmpty()) {
-            append("\n\n").append(body)
-        }
-    }
-
     private fun copyToClipboard() {
         val sel = java.awt.Toolkit.getDefaultToolkit().systemClipboard
-        sel.setContents(java.awt.datatransfer.StringSelection(composedMessage()), null)
-        JOptionPane.showMessageDialog(null, "Copied to clipboard.", DIALOG_TITLE, JOptionPane.INFORMATION_MESSAGE)
+        // Copy only the short subject (summarized commit message), not Details/body
+        sel.setContents(java.awt.datatransfer.StringSelection(subjectField.text.trim()), null)
+        JOptionPane.showMessageDialog(null, "Copied subject to clipboard.", DIALOG_TITLE, JOptionPane.INFORMATION_MESSAGE)
     }
 
     // Use aggregate diff and optional details to generate short commit subject via Gemini
@@ -299,30 +291,43 @@ private class SmartCommitDialog(project: Project, result: DiffSummarizer.Result,
 
         com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val prompt = buildString {
-                    appendLine("You are a commit message assistant. Create a single concise commit subject line (<= 72 chars) using Conventional Commits style when appropriate (feat, fix, refactor, chore, docs, test, build).")
-                    appendLine("Return ONLY the subject line, no trailing punctuation.")
-                    appendLine()
-                    appendLine("If a ticket ID like ABC-123 is present in context, include it as [ABC-123] prefix when relevant.")
-                    appendLine()
-                    appendLine("Here is the unified git diff (staged + unstaged):")
-                    appendLine("""\
-$aggregateDiff
-""".trim())
-                    if (details.isNotEmpty()) {
-                        appendLine()
-                        appendLine("Human-readable summary:")
-                        appendLine(details)
-                    }
+                // Try to extract a ticket ID from details (e.g., from "Related: XYZ-123")
+                val ticketFromDetails: String? = run {
+                    val m = Regex("([A-Z]{2,}-\\d+)").find(details)
+                    m?.groupValues?.getOrNull(1)
                 }
+
+                // Build prompt: use only Details (optional) text, and DO NOT include CC prefixes
+                val prompt = buildString {
+                    appendLine("Generate ONE git commit subject line.")
+                    appendLine("Rules:")
+                    appendLine("- Max 72 characters")
+                    appendLine("- Do NOT include any Conventional Commit type prefix (e.g., 'feat:', 'chore:')")
+                    appendLine("- If a ticket ID like ABC-123 is present in details, prepend it in square brackets, e.g., [ABC-123]")
+                    appendLine("- Do NOT explain your answer")
+                    appendLine("- Do NOT add quotes or punctuation at the end")
+                    appendLine()
+                    appendLine("Base the message ONLY on the details below.")
+                    appendLine()
+                    appendLine("Details:")
+                    appendLine(details)
+                }
+
                 val text: String = runBlocking {
                     geminiService.generateContent(defaultModelId, prompt)
                 }.trim()
 
                 SwingUtilities.invokeLater {
-                    val finalText = text.lines().firstOrNull()?.trim().orEmpty()
+                    var finalText = text.lines().firstOrNull()?.trim().orEmpty()
+
+                    // If we detected a ticket, ensure it's prepended in [TICKET]
+                    ticketFromDetails?.let { ticket ->
+                        if (!finalText.startsWith("[$ticket]")) {
+                            finalText = "[$ticket] $finalText"
+                        }
+                    }
+
                     summaryArea.text = finalText
-                    // Also update the Subject field to the generated subject if present
                     if (finalText.isNotBlank()) {
                         subjectField.text = finalText
                     }
@@ -332,7 +337,7 @@ $aggregateDiff
                 SwingUtilities.invokeLater {
                     summaryArea.isEnabled = true
                     summaryArea.text = "Failed to generate: ${t.message}"
-                    JOptionPane.showMessageDialog(null, "Gemini error: ${t.message}", "Smart Commit", JOptionPane.ERROR_MESSAGE)
+                    JOptionPane.showMessageDialog(null, "Gemini error: ${t.message}", DIALOG_TITLE, JOptionPane.ERROR_MESSAGE)
                 }
             }
         }
