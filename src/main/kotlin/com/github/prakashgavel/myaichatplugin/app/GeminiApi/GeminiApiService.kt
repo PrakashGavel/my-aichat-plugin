@@ -7,7 +7,6 @@ import kotlinx.coroutines.withContext
 /**
  * High-level service to coordinate Gemini API calls.
  * This class uses GeminiApiClient to call Gemini and GeminiKeyService to retrieve the API key.
- * Adjust wiring if you have a different approach for key management.
  */
 class GeminiApiService(
     private val client: GeminiApiClient,

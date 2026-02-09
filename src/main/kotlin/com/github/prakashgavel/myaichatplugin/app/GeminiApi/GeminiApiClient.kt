@@ -15,7 +15,6 @@ class GeminiApiClient(
     private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun generateContent(apiKey: String, model: String, contents: String): String {
-        // Endpoint: /v{version}/models/{model}:generateContent?key=API_KEY
         val endpoint = "$baseUrl/$apiVersion/models/$model:generateContent?key=$apiKey"
 
         val payload = GeminiApiRoutes.GenerateContentRequest(

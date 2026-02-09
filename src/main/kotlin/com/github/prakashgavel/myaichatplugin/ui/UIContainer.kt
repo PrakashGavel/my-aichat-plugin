@@ -161,6 +161,8 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
                 geminiKeyStore.saveApiKey(key)
                 appendChat("System", "Gemini API key saved.")
             } else {
+                // User pressed OK with empty key: clear any stored key so future calls fail appropriately
+                geminiKeyStore.clear()
                 appendChat("System", "Gemini API key not set.")
             }
         }
