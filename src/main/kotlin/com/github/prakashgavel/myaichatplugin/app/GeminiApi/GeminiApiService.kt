@@ -1,6 +1,6 @@
 package com.github.prakashgavel.myaichatplugin.api
 
-import GeminiApiClient
+import com.github.prakashgavel.myaichatplugin.app.GeminiApi.GeminiApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

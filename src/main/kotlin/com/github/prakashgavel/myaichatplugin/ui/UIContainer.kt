@@ -1,9 +1,9 @@
 package com.github.prakashgavel.myaichatplugin.ui
 
-import GeminiApiClient
 import com.github.prakashgavel.myaichatplugin.api.GeminiApiService
 import com.github.prakashgavel.myaichatplugin.api.GeminiKeyProviderImpl
 import com.github.prakashgavel.myaichatplugin.api.GeminiKeyStore
+import com.github.prakashgavel.myaichatplugin.app.GeminiApi.GeminiApiClient
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.vfs.VfsUtilCore

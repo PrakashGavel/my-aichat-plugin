@@ -10,6 +10,11 @@ import java.awt.BorderLayout
 import java.nio.charset.StandardCharsets
 import javax.swing.*
 import kotlin.math.abs
+import com.github.prakashgavel.myaichatplugin.api.GeminiApiService
+import com.github.prakashgavel.myaichatplugin.api.GeminiKeyProviderImpl
+import com.github.prakashgavel.myaichatplugin.app.GeminiApi.GeminiApiClient
+import com.github.prakashgavel.myaichatplugin.ui.UiModels
+import kotlinx.coroutines.runBlocking
 
 /**
  * Smart Commit Message Generator
@@ -56,7 +61,7 @@ class SmartCommitAction : AnAction() {
         }
 
         val summary = DiffSummarizer().summarize(aggregate, branch.trim())
-        SmartCommitDialog(project, summary).show()
+        SmartCommitDialog(project, summary, aggregate).show()
     }
 
     private fun runGit(workingDir: String, args: List<String>): Pair<String, String> {
@@ -93,12 +98,15 @@ class DiffSummarizer {
                 line.startsWith("diff --git ") -> {
                     val parts = line.removePrefix("diff --git ").split(' ')
                     val path = parts.getOrNull(1)?.removePrefix("b/") ?: parts.lastOrNull()?.removePrefix("b/") ?: "unknown"
-                    current = FileDelta(path)
-                    files += current!!
+                    val fd = FileDelta(path)
+                    current = fd
+                    files += fd
                 }
-                line.startsWith("+++") || line.startsWith("---") || line.startsWith("index ") || line.startsWith("@@") -> {}
-                line.startsWith("+ ") || line == "+" || (line.startsWith('+') && !line.startsWith("+++")) -> current!!.adds = (current!!.adds) + 1
-                line.startsWith('-') && !line.startsWith("---") -> current!!.dels = (current!!.dels) + 1
+                line.startsWith("+++") || line.startsWith("---") || line.startsWith("index ") || line.startsWith("@@") -> {
+                    // skip metadata lines
+                }
+                line.startsWith("+ ") || line == "+" || (line.startsWith('+') && !line.startsWith("+++")) -> current?.let { it.adds = it.adds + 1 }
+                line.startsWith('-') && !line.startsWith("---") -> current?.let { it.dels = it.dels + 1 }
             }
         }
 
@@ -187,17 +195,38 @@ class DiffSummarizer {
     }
 }
 
-private class SmartCommitDialog(project: Project, private val result: DiffSummarizer.Result) : DialogWrapper(project) {
+private class SmartCommitDialog(project: Project, result: DiffSummarizer.Result, private val aggregateDiff: String) : DialogWrapper(project) {
+    private val DIALOG_TITLE = "Smart Commit"
     private val subjectField = JTextField(result.subject)
-    private val bodyArea = JTextArea(result.body).apply {
+    // New summarized short commit message area
+    private val summaryArea = JTextArea().apply {
+        lineWrap = true
+        wrapStyleWord = true
+        rows = 3
+        toolTipText = "Summarized short commit message (AI-generated)"
+        // Ensure caret/insertion point is visible even when empty
+        caretPosition = 0
+    }
+    private val bodyArea = JTextArea(buildString {
+        append(result.body)
+        append("\n\n")
+        append("Unified diff (staged + unstaged):\n")
+        append(aggregateDiff)
+    }).apply {
         lineWrap = true
         wrapStyleWord = true
         rows = 12
     }
 
+    // Use existing Gemini service wiring
+    private val geminiService = GeminiApiService(GeminiApiClient(), GeminiKeyProviderImpl())
+    private val defaultModelId = UiModels.defaultModels.firstOrNull()?.id ?: "gemini-2.5-flash-lite"
+
     init {
-        title = "Smart Commit"
+        title = DIALOG_TITLE
         init()
+        // Set insertion point in the summary area even if empty
+        SwingUtilities.invokeLater { summaryArea.requestFocusInWindow() }
     }
 
     override fun createCenterPanel(): JComponent {
@@ -206,6 +235,26 @@ private class SmartCommitDialog(project: Project, private val result: DiffSummar
         top.add(JLabel("Subject:"), BorderLayout.WEST)
         top.add(subjectField, BorderLayout.CENTER)
         panel.add(top, BorderLayout.NORTH)
+
+        // Summarized short commit message section
+        val summaryScroll = JBScrollPane(summaryArea).apply {
+            verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+        }
+        val summaryPanel = JPanel(BorderLayout(4, 4)).apply {
+            add(JLabel("Summarized Short commit message:"), BorderLayout.NORTH)
+            add(summaryScroll, BorderLayout.CENTER)
+            // Button directly under the summary area
+            val summaryButtons = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                add(Box.createHorizontalGlue())
+                add(JButton("Generate Commit Message").apply {
+                    addActionListener { generateCommitMessageFromDetails() }
+                })
+            }
+            add(summaryButtons, BorderLayout.SOUTH)
+        }
+        panel.add(summaryPanel, BorderLayout.WEST)
 
         val bodyScroll = JBScrollPane(bodyArea).apply {
             verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
@@ -239,6 +288,53 @@ private class SmartCommitDialog(project: Project, private val result: DiffSummar
     private fun copyToClipboard() {
         val sel = java.awt.Toolkit.getDefaultToolkit().systemClipboard
         sel.setContents(java.awt.datatransfer.StringSelection(composedMessage()), null)
-        JOptionPane.showMessageDialog(null, "Copied to clipboard.", "Smart Commit", JOptionPane.INFORMATION_MESSAGE)
+        JOptionPane.showMessageDialog(null, "Copied to clipboard.", DIALOG_TITLE, JOptionPane.INFORMATION_MESSAGE)
+    }
+
+    // Use aggregate diff and optional details to generate short commit subject via Gemini
+    private fun generateCommitMessageFromDetails() {
+        val details = bodyArea.text.trim()
+        summaryArea.text = "Generating short commit message via Gemini..."
+        summaryArea.isEnabled = false
+
+        com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val prompt = buildString {
+                    appendLine("You are a commit message assistant. Create a single concise commit subject line (<= 72 chars) using Conventional Commits style when appropriate (feat, fix, refactor, chore, docs, test, build).")
+                    appendLine("Return ONLY the subject line, no trailing punctuation.")
+                    appendLine()
+                    appendLine("If a ticket ID like ABC-123 is present in context, include it as [ABC-123] prefix when relevant.")
+                    appendLine()
+                    appendLine("Here is the unified git diff (staged + unstaged):")
+                    appendLine("""\
+$aggregateDiff
+""".trim())
+                    if (details.isNotEmpty()) {
+                        appendLine()
+                        appendLine("Human-readable summary:")
+                        appendLine(details)
+                    }
+                }
+                val text: String = runBlocking {
+                    geminiService.generateContent(defaultModelId, prompt)
+                }.trim()
+
+                SwingUtilities.invokeLater {
+                    val finalText = text.lines().firstOrNull()?.trim().orEmpty()
+                    summaryArea.text = finalText
+                    // Also update the Subject field to the generated subject if present
+                    if (finalText.isNotBlank()) {
+                        subjectField.text = finalText
+                    }
+                    summaryArea.isEnabled = true
+                }
+            } catch (t: Throwable) {
+                SwingUtilities.invokeLater {
+                    summaryArea.isEnabled = true
+                    summaryArea.text = "Failed to generate: ${t.message}"
+                    JOptionPane.showMessageDialog(null, "Gemini error: ${t.message}", "Smart Commit", JOptionPane.ERROR_MESSAGE)
+                }
+            }
+        }
     }
 }

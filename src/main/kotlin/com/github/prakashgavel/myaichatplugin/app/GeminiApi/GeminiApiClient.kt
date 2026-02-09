@@ -1,3 +1,5 @@
+package com.github.prakashgavel.myaichatplugin.app.GeminiApi
+
 import com.github.prakashgavel.myaichatplugin.api.GeminiApiRoutes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
