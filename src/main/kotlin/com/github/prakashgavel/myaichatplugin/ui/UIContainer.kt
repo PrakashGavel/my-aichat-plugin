@@ -57,10 +57,14 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
 
     // Replace single-line inputField with multi-line inputTextArea supporting Shift+Enter for newline, Enter to send
     private val inputTextArea = JTextArea().apply {
+        border = BorderFactory.createEmptyBorder(6, 0, 0, 0)
         lineWrap = true
         wrapStyleWord = true
         rows = 3
         font = UIManager.getFont("TextField.font")
+        // Ensure caret is visible even when the text area is empty
+        caret.isVisible = true
+        caretPosition = 0
         // Key bindings: Enter to send, Shift+Enter to newline
         val sendKey = KeyStroke.getKeyStroke("ENTER")
         val newlineKey = KeyStroke.getKeyStroke("shift ENTER")
@@ -72,6 +76,9 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
                 val userInput = text.trim()
                 if (userInput.isEmpty()) return
                 text = ""
+                // After clearing, keep focus and show caret at start in the empty input
+                requestFocusInWindow()
+                caretPosition = 0
                 appendChat("You", userInput)
                 // Launch Gemini request
                 CoroutineScope(Dispatchers.Main).launch {
@@ -136,7 +143,7 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
     // Add a wrapper to provide a small vertical gap above the context chips box
     private val selectedContextWrapper = JPanel(BorderLayout()).apply {
         // add a small top padding to create vertical space between input area and context box
-        border = BorderFactory.createEmptyBorder(15, 0, 0, 0)
+        border = BorderFactory.createEmptyBorder(6, 0, 0, 0)
         add(selectedContextPanel, BorderLayout.CENTER)
     }
 
@@ -175,6 +182,9 @@ class UIContainer(private val project: Project) : JPanel(BorderLayout()) {
         // Focus input at startup and place caret at 0 in chat display
         SwingUtilities.invokeLater {
             inputTextArea.requestFocusInWindow()
+            // Ensure caret is visible and at position 0 when empty
+            inputTextArea.caret.isVisible = true
+            inputTextArea.caretPosition = 0
             chatArea.caretPosition = 0
             chatAreaScroll.verticalScrollBar.value = 0
         }
