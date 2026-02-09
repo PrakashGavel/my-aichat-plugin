@@ -16,4 +16,16 @@
             icon="/icons/myToolWindow.svg"/>
         <postStartupActivity implementation="com.github.prakashgavel.myaichatplugin.startup.MyProjectActivity"/>
     </extensions>
+
+    <actions>
+        <!-- Smart Commit Message Generator action in VCS and Tools menus -->
+        <action id="com.github.prakashgavel.myaichatplugin.actions.SmartCommitAction"
+                class="com.github.prakashgavel.myaichatplugin.commit.SmartCommitAction"
+                text="Generate Smart Commit Message"
+                description="Read local Git diff and generate a concise commit message with optional details">
+            <add-to-group group-id="ChangesViewPopupMenu" anchor="last"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt G" second-keystroke="M"/>
+        </action>
+    </actions>
 </idea-plugin>
