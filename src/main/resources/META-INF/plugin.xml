@@ -5,6 +5,7 @@
     <vendor>prakashgavel</vendor>
 
     <depends>com.intellij.modules.platform</depends>
+    <depends>Git4Idea</depends>
 
     <resource-bundle>messages.MyBundle</resource-bundle>
 
@@ -26,6 +27,13 @@
             <add-to-group group-id="ChangesViewPopupMenu" anchor="last"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt G" second-keystroke="M"/>
+        </action>
+        <action id="com.github.prakashgavel.myaichatplugin.actions.BranchScopedGitLogAction"
+                class="com.github.prakashgavel.myaichatplugin.gitlog.BranchScopedGitLogAction"
+                text="Branch Scoped Git Log"
+                description="Show git log for current branch with filters">
+            <add-to-group group-id="MainToolbarRight" anchor="last"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>
